@@ -1,0 +1,10 @@
+/shared/constants.as;
+/shared/files.as;
+
+generic/matchstates.as;
+generic/bots.as;
+generic/items.as;
+cod/cod.as;
+cod/cod_cp.as;
+
+legacy/quake1.as;
