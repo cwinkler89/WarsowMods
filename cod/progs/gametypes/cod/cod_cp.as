@@ -2,12 +2,13 @@ cCodPlayer @codHead = null;
 
 class cCodPlayer {
 	cClient @client;
-	cStats statsOnLastDeath;
+	int counter;
 	
 	cCodPlayer @next;
 	cCodPlayer @prev; // for faster removal
 	
-	bool hasDeathStrike1;
+	uint deathStrike;
+	uint killStrike;
 
 	cCodPlayer(cClient @player) {
 		if(@player == null) {
@@ -21,15 +22,11 @@ class cCodPlayer {
 		}
 		@codHead = @this;
 		
-		this.client = player;
-		resetPlayer();
+		@this.client = player;
+		this.reset();
 	}
 		
 	void disconnect() {
-
-		this.model.freeEntity();
-		this.sprite.freeEntity();
-		this.minimap.freeEntity();
 
 		if(@this.prev != null) {
 			@this.prev.next = @this.next;
@@ -44,12 +41,52 @@ class cCodPlayer {
 	}
 	
 	void reset() {
-		statsOnLastDeath = client.stats;
-		this.hasDeathStrike1 = false;
+		this.counter = 0;
+		deathStrike = 0;
+		killStrike = 0;
 	}
 	
-	void update() {
+	void addKill() {
+		if (counter < 0) {
+			counter = 0;
+			deathStrike = 0;
+		}
+
+		counter+=1;
 		
+		
+		if (counter >=7) {
+			G_Print(client.getName() + ": Killstrike 7+\n");
+		}
+		else if (counter >=5) {
+			G_Print(client.getName() + ": Killstrike 5\n");
+		}
+		else if (counter >=3) {
+			G_Print(client.getName() + ": Killstrike 3\n");
+			client.armor += 150;
+		}
+	}
+	
+	void addDeath() {
+		if (counter > 0) {
+			counter = 0;
+			killStrike = 0;
+		}
+
+		counter -=1;
+		
+		if (counter <= -7) {
+			G_Print(client.getName() + ": Deathstrike 7-\n");
+			deathStrike = 3;
+		}
+		else if (counter <= -5) {
+			G_Print(client.getName() + ": Deathstrike 5\n");
+			deathStrike = 2;
+		}
+		else if (counter <= -3) {
+			G_Print(client.getName() + ": Deathstrike 3\n");
+			deathStrike = 1;
+		}
 	}
 		
 }

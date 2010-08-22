@@ -1,26 +1,109 @@
+int prcYesIcon;
+int prcShockIcon;
+int prcShellIcon;
+
+cVar CodAllowPowerups("cod_allowPowerups", "0", CVAR_ARCHIVE);
+cVar CodAllowPowerupDrop("cod_powerupDrop", "1", CVAR_ARCHIVE);
+
+void COD_giveInventory(cClient @client) {
+	client.inventoryClear();
+
+	client.inventoryGiveItem(WEAP_GUNBLADE);
+	client.inventorySetCount(AMMO_GUNBLADE, 3);
+	//client.inventoryGiveItem(WEAP_MACHINEGUN);
+	//client.inventorySetCount(AMMO_BULLETS, 50);
+
+	client.armor = 50;
+}
+
+cString @GT_ScoreboardMessage(int maxlen) {
+	cString scoreboardMessage = "";
+	cString entry;
+	cTeam @team;
+	cEntity @ent;
+	int i, t, readyIcon;
+
+	for(t = TEAM_ALPHA; t < GS_MAX_TEAMS; t++) {
+		@team = @G_GetTeam(t);
+		// &t = team tab, team tag, team score (doesn't apply), team ping (doesn't apply)
+		entry = "&t " + t + " " + team.stats.score + " " + team.ping + " ";
+
+		if(scoreboardMessage.len() + entry.len() < maxlen) {
+			scoreboardMessage += entry;
+		}
+
+		for(i = 0; @team.ent(i) != null; i++) {
+			@ent = @team.ent(i);
+
+			readyIcon = ent.client.isReady() ? prcYesIcon : 0;
+
+			int playerID = (ent.isGhosting() && (match.getState() == MATCH_STATE_PLAYTIME)) ? -(ent.playerNum() + 1) : ent.playerNum();
+
+			if(gametype.isInstagib()) {
+				// "Name Clan Score Dfrst Ping R"
+				entry = "&p " + playerID + " " + ent.client.getClanName() + " "
+					+ ent.client.stats.score + " " + ent.client.stats.deaths + " " +
+					+ ent.client.ping + " " + readyIcon + " ";
+			} else {
+				int carrierIcon;
+				if(ent.client.inventoryCount(POWERUP_QUAD) > 0) {
+					carrierIcon = prcShockIcon;
+				} else if(ent.client.inventoryCount(POWERUP_SHELL) > 0) {
+					carrierIcon = prcShellIcon;
+				} else {
+					carrierIcon = 0;
+				}
+
+				// "Name Clan Score Frags Dfrst Ping C R"
+				entry = "&p " + playerID + " " + ent.client.getClanName() + " "
+					+ ent.client.stats.score + " " + ent.client.stats.frags + " " + ent.client.stats.deaths + " "
+					+ ent.client.ping + " " + carrierIcon + " " + readyIcon + " ";
+			}
+
+			if(scoreboardMessage.len() + entry.len() < maxlen) {
+				scoreboardMessage += entry;
+			}
+		}
+	}
+
+	return scoreboardMessage;
+}
+
+
 void GT_scoreEvent(cClient @client, cString &score_event, cString &args) {
 	// Some game actions trigger score events. These are events not related to killing
 	// oponents, like capturing a flag
 	
 	if(score_event == "dmg") {
 		if(match.getState() == MATCH_STATE_PLAYTIME) {
+			/*
 			GT_updateScore(client);
 			cCodPlayer @codPlayer = @getCodPlayer(client);
 			
 			if (@codPlayer != null) {
 				codPlayer.update();
 			}
+			*/
+			//G_Print("GT_scoreEvent called - dmg\n");
 		}
 	} else if(score_event == "kill") {
-		cEntity @target = G_GetEntity(args.getToken(0).toInt());
-		cEntity @attacker = @client.getEnt();
 		
-		if (@target != null || @target.client != null) {
-			@getCodPlayer(@target).reset();
+		cEntity @target = G_GetEntity(args.getToken(0).toInt());
+		
+		if (@target != null && @target.client != null) {
+			cCodPlayer @player = getCodPlayer(target.client);
+			if (@player != null) {
+				player.addDeath();
+			}
 		}
 		
-		if (@attacker != null || @attacker.client != null) {
-			@getCodPlayer(@attacker).update();
+		// client is the attacker
+		
+		if (@client != null) {
+			cCodPlayer @player = getCodPlayer(client);
+			if (@player != null) {
+				player.addKill();
+			}
 		}
 		
 	} else if(score_event == "disconnect") {
@@ -49,6 +132,8 @@ void GT_playerRespawn(cEntity @ent, int old_team, int new_team) {
 		return;
 	}
 
+	COD_giveInventory(ent.client);
+
 	// auto-select best weapon in the inventory
 	if(ent.client.pendingWeapon == WEAP_NONE) {
 		ent.client.selectWeapon(-1);
@@ -60,7 +145,6 @@ void GT_playerRespawn(cEntity @ent, int old_team, int new_team) {
 
 
 bool GT_UpdateBotStatus(cEntity @ent) {
-	// TODO: make bots defrost people
 	return GENERIC_UpdateBotStatus(ent);
 }
 
@@ -75,6 +159,33 @@ void GT_ThinkRules() {
 	if(match.scoreLimitHit() || match.timeLimitHit() || match.suddenDeathFinished()) {
 		match.launchState(match.getState() + 1);
 	}
+	
+	for(int i = 0; i < maxClients; i++) {
+		cClient @client = @G_GetClient(i);
+		
+		if (client == null)
+			return;
+			
+		cCodPlayer @codPlayer = getCodPlayer(client);
+		
+		if (codPlayer != null && !codPlayer.client.getEnt().isGhosting()) {
+			if (codPlayer.deathStrike > 0) {
+				if (codPlayer.client.armor < 200)
+					codPlayer.client.armor += (frameTime * 0.005f);
+			}
+			if (codPlayer.deathStrike > 1) {
+				if (codPlayer.client.getEnt().health < 200)
+					codPlayer.client.getEnt().health += (frameTime * 0.005f);
+			}
+			if (codPlayer.deathStrike > 2) {
+				if (codPlayer.client.armor < 500)
+						codPlayer.client.armor += (frameTime * 0.005f);
+				if (codPlayer.client.getEnt().health < 500)
+					codPlayer.client.getEnt().health += (frameTime * 0.005f);
+			}
+		}
+	}
+}
 
 bool GT_MatchStateFinished(int incomingMatchState) {
 	// The game has detected the end of the match state, but it
@@ -122,11 +233,9 @@ void GT_MatchStateStarted() {
 
 			GENERIC_SetUpMatch();
 
-			COD_InitCodPlayers();
-
 			// set spawnsystem type to not respawn the players when they die
 			for(int team = TEAM_PLAYERS; team < GS_MAX_TEAMS; team++) {
-				gametype.setTeamSpawnsystem(team, SPAWNSYSTEM_HOLD, 0, 0, true);
+				gametype.setTeamSpawnsystem(team, SPAWNSYSTEM_INSTANT, 0, 0, false);
 			}
 
 			break;
@@ -163,7 +272,7 @@ void GT_InitGametype() {
 	gametype.setAuthor("ChriZzZ");
 
 	gametype.spawnableItemsMask = IT_WEAPON | IT_AMMO | IT_ARMOR | IT_POWERUP | IT_HEALTH;
-	if(!CODAllowPowerups.getBool()) {
+	if(!CodAllowPowerups.getBool()) {
 		gametype.spawnableItemsMask &= ~IT_POWERUP;
 	}
 	if(gametype.isInstagib()) {
@@ -185,7 +294,7 @@ void GT_InitGametype() {
 	gametype.powerupRespawn = 90;
 	gametype.megahealthRespawn = 20;
 	gametype.ultrahealthRespawn = 60;
-	gametype.readyAnnouncementEnabled = false;
+	gametype.readyAnnouncementEnabled = true;
 
 	gametype.scoreAnnouncementEnabled = true;
 	gametype.countdownEnabled = true;
@@ -209,16 +318,18 @@ void GT_InitGametype() {
 	// define the scoreboard layout
 	if(gametype.isInstagib()) {
 		G_ConfigString(CS_SCB_PLAYERTAB_LAYOUT, "%n 112 %s 52 %i 52 %i 52 %l 48 %p 18");
-		G_ConfigString(CS_SCB_PLAYERTAB_TITLES, "Name Clan Score Dfrst Ping R");
+		G_ConfigString(CS_SCB_PLAYERTAB_TITLES, "Name Clan Score Deaths Ping R");
 	} else {
 		G_ConfigString(CS_SCB_PLAYERTAB_LAYOUT, "%n 112 %s 52 %i 52 %i 52 %i 52 %l 48 " + "%p 18 " + "%p 18");
-		G_ConfigString(CS_SCB_PLAYERTAB_TITLES, "Name Clan Score Frags Dfrst Ping " + "C " + " R");
+		G_ConfigString(CS_SCB_PLAYERTAB_TITLES, "Name Clan Score Frags Deaths Ping " + "C " + " R");
 	}
 
+	
 	// precache images that can be used by the scoreboard
 	prcYesIcon = G_ImageIndex("gfx/hud/icons/vsay/yes");
 	prcShockIcon = G_ImageIndex("gfx/hud/icons/powerup/quad");
 	prcShellIcon = G_ImageIndex("gfx/hud/icons/powerup/warshell");
+	
 
 	// add commands
 	G_RegisterCommand("drop");
@@ -234,8 +345,8 @@ void GT_InitGametype() {
 		config = "// '" + gametype.getTitle() + "' gametype configuration file\n"
 			+ "// This config will be executed each time the gametype is started\n"
 			+ "\n// " + gametype.getTitle() + " specific settings\n"
-			+ "set COD_allowPowerups \"1\"\n"
-			+ "set COD_powerupDrop \"1\"\n"
+			+ "set cod_allowPowerups \"1\"\n"
+			+ "set cod_powerupDrop \"1\"\n"
 			+ "\n// map rotation\n"
 			+ "set g_maplist \"wdm1 wdm2 wdm3 wdm4 wdm5 wdm6 wdm7 wdm8 wdm9 wdm10 wdm11 wdm12 wdm13 wdm14 wdm15 wdm16 wdm17\" // list of maps in automatic rotation\n"
 			+ "set g_maprotation \"1\"   // 0 = same map, 1 = in order, 2 = random\n"
