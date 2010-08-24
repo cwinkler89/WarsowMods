@@ -88,6 +88,7 @@ void GT_scoreEvent(cClient @client, cString &score_event, cString &args) {
 		}
 	} else if(score_event == "kill") {
 		
+		// the target is saved in the args variable
 		cEntity @target = G_GetEntity(args.getToken(0).toInt());
 		
 		if (@target != null && @target.client != null) {
@@ -101,7 +102,7 @@ void GT_scoreEvent(cClient @client, cString &score_event, cString &args) {
 		
 		if (@client != null) {
 			cCodPlayer @player = getCodPlayer(client);
-			if (@player != null) {
+			if (@player != null && @client != @target.client) {
 				player.addKill();
 			}
 		}
@@ -154,6 +155,131 @@ cEntity @GT_SelectSpawnPoint(cEntity @self) {
 	return GENERIC_SelectBestRandomSpawnPoint(self, "info_player_deathmatch");
 }
 
+bool GT_Command(cClient @client, cString &cmdString, cString &argsString, int argc) {
+	if(cmdString == "drop") {
+		cString token;
+		for(int i = 0; i < argc; i++) {
+			token = argsString.getToken(i);
+			if(token.len() == 0) {
+				break;
+			}
+
+			if(token == "fullweapon") {
+				GENERIC_DropCurrentWeapon(client, true);
+				GENERIC_DropCurrentAmmoStrong(client);
+			} else if(token == "weapon") {
+				GENERIC_DropCurrentWeapon(client, true);
+			} else if(token == "strong") {
+				GENERIC_DropCurrentAmmoStrong(client);
+			} else {
+				GENERIC_CommandDropItem(client, token);
+			}
+		}
+		return true;
+	} else if(cmdString == "gametype") {
+		cString response = "";
+		cVar fs_game("fs_game", "", 0);
+		cString manifest = gametype.getManifest();
+		response += "\n";
+		response += "Gametype " + gametype.getName() + " : " + gametype.getTitle() + "\n";
+		response += "----------------\n";
+		response += "Version: " + gametype.getVersion() + "\n";
+		response += "Author: " + gametype.getAuthor() + "\n";
+		response += "Mod: " + fs_game.getString() + (manifest.length() > 0 ? " (manifest: " + manifest + ")" : "") + "\n";
+		response += "----------------\n";
+		G_PrintMsg(client.getEnt(), response);
+		return true;
+	}
+	else if (cmdString == "debug") {
+		getCodPlayer(client).autoaim = true;
+	}
+	/*
+	 else if(cmdString == "callvotevalidate") {
+		cString votename = argsString.getToken(0);
+		if(votename == "ftag_powerups") {
+			cString voteArg = argsString.getToken(1);
+			if(voteArg.len() < 1) {
+				client.printMessage("Callvote " + votename + " requires at least one argument\n");
+				return false;
+			}
+
+			if(voteArg != "0" && voteArg != "1") {
+				client.printMessage("Callvote " + votename + " expects a 1 or a 0 as argument\n");
+				return false;
+			}
+
+			int value = voteArg.toInt();
+
+			if(value == 0 && !ftagAllowPowerups.getBool()) {
+				client.printMessage("Powerups are already disabled\n");
+				return false;
+			}
+
+			if(value == 1 && ftagAllowPowerups.getBool()) {
+				client.printMessage("Powerups are already enabled\n");
+				return false;
+			}
+
+			return true;
+		}
+
+		if(votename == "ftag_powerup_drop") {
+			cString voteArg = argsString.getToken(1);
+			if(voteArg.len() < 1) {
+				client.printMessage("Callvote " + votename + " requires at least one argument\n");
+				return false;
+			}
+
+			if(voteArg != "0" && voteArg != "1") {
+				client.printMessage("Callvote " + votename + " expects a 1 or a 0 as argument\n");
+				return false;
+			}
+
+			int value = voteArg.toInt();
+
+			if(value == 0 && !ftagAllowPowerupDrop.getBool()) {
+				client.printMessage("Powerup drop is already disabled\n");
+				return false;
+			}
+
+			if(value == 1 && ftagAllowPowerupDrop.getBool()) {
+				client.printMessage("Powerup drop is already enabled\n");
+				return false;
+			}
+
+			return true;
+		}
+
+		client.printMessage("Unknown callvote " + votename + "\n");
+		return false;
+
+	} else if(cmdString == "callvotepassed") {
+		cString votename = argsString.getToken(0);
+		if(votename == "ftag_powerups") {
+			ftagAllowPowerups.set(argsString.getToken(1).toInt() > 0 ? 1 : 0);
+
+			// force restart to update
+			match.launchState(MATCH_STATE_POSTMATCH);
+
+			// if i do this, powerups spawn but are unpickable
+			/*if(ftagAllowPowerups.getBool()) {
+				gametype.spawnableItemsMask |= IT_POWERUP;
+			} else {
+				gametype.spawnableItemsMask &= ~IT_POWERUP;
+			}
+		} else if(votename == "ftag_powerup_drop") {
+			ftagAllowPowerupDrop.set(argsString.getToken(1).toInt() > 0 ? 1 : 0);
+		}
+		return true;
+	}
+	*/
+	return false;
+}
+
+float dot(const cVec3 &v1, const cVec3 &v2) {
+	return v1.x * v2.x + v1.y * v2.y + v1.z * v2.z;
+}
+
 // Thinking function. Called each frame
 void GT_ThinkRules() {
 	if(match.scoreLimitHit() || match.timeLimitHit() || match.suddenDeathFinished()) {
@@ -164,26 +290,89 @@ void GT_ThinkRules() {
 		cClient @client = @G_GetClient(i);
 		
 		if (client == null)
-			return;
+			continue;
 			
 		cCodPlayer @codPlayer = getCodPlayer(client);
 		
 		if (codPlayer != null && !codPlayer.client.getEnt().isGhosting()) {
 			if (codPlayer.deathStrike > 0) {
 				if (codPlayer.client.armor < 200)
-					codPlayer.client.armor += (frameTime * 0.005f);
+					codPlayer.client.armor += (frameTime * 0.015f / getFragToDeathRatio(client));
+				if (codPlayer.client.getEnt().health < 200)
+					codPlayer.client.getEnt().health += (frameTime * 0.015f / getFragToDeathRatio(client));
 			}
 			if (codPlayer.deathStrike > 1) {
-				if (codPlayer.client.getEnt().health < 200)
-					codPlayer.client.getEnt().health += (frameTime * 0.005f);
-			}
-			if (codPlayer.deathStrike > 2) {
-				if (codPlayer.client.armor < 500)
-						codPlayer.client.armor += (frameTime * 0.005f);
-				if (codPlayer.client.getEnt().health < 500)
-					codPlayer.client.getEnt().health += (frameTime * 0.005f);
+				// TODO: IMPLEMENT QUAD
 			}
 		}
+		
+		// AUTOAIM
+		/*
+		if (codPlayer != null && codPlayer.autoaim) {
+			
+			cVec3 origin = client.getEnt().getOrigin();
+			cVec3 eye = origin + cVec3(0, 0, client.getEnt().viewHeight);
+	
+			cVec3 dir;
+			// unit vector
+			client.getEnt().getAngles().angleVectors(dir, null, null);
+	
+			cString msg;
+	
+			for(cCodPlayer @otherCodPlayer = @codHead; @otherCodPlayer != null; @otherCodPlayer = @otherCodPlayer.next) {
+				
+				if (@codPlayer == @otherCodPlayer)
+					continue;
+				
+				if(client.team != otherCodPlayer.client.team) {
+					// this compares the dot product of the vector from
+					// player's eye and the model's center and the vector
+					// from the player's eye to the model's top with the
+					// dot product of the vector from the player's eye to
+					// the model's center and the player's angle vector
+					// it should work nicely from all angles and distances
+					// TODO: it's actually stupid at close range since it
+					// assumes you're looking at h1o
+					
+	
+					cEntity @model = @otherCodPlayer.client.getEnt();
+					cVec3 mid = model.getOrigin();
+					// + (mins + maxs) * 0.5;
+	
+					// if(origin.distance(mid) <= FTAG_DEFROST_RADIUS) {
+					// 	continue;
+					// }
+					
+					cVec3 mins, maxs;
+					model.getSize(mins, maxs);
+	
+					cVec3 top = mid + cVec3(0, 0, 20.0f);
+	
+					cVec3 eyemid = mid - eye;
+					eyemid.normalize();
+					cVec3 eyetop = top - eye;
+					eyetop.normalize();
+	
+					if(dot(dir, eyemid) >= dot(eyetop, eyemid)) {
+						//G_FireInstaShot( cVec3 &origin, cVec3 &angles, int range, int damage, int knockback, int stun, cEntity @owner );
+						//G_FireInstaShot( eye, client.getEnt().getAngles(), 99, 1, 5, 100, codPlayer.client.getEnt() );
+						//cEntity @G_FirePlasma( cVec3 &origin, cVec3 &angles, int speed, int radius, int damage, int knockback, int stun, cEntity @owner );
+						G_FirePlasma( eye, client.getEnt().getAngles(), 550, 50, 1, 5, 110, codPlayer.client.getEnt() );
+						msg += "!!! " + otherCodPlayer.client.getName() + " !!!";
+					}
+				}
+			}
+	
+			int len = msg.len();
+			if(len != 0) {
+				G_ConfigString(CS_GENERAL + 2 + i, msg.substr(0, len - 2));
+	
+				client.setHUDStat(STAT_MESSAGE_SELF, CS_GENERAL + 2 + i);
+			} else {
+				client.setHUDStat(STAT_MESSAGE_SELF, 0);
+			}
+		}
+		*/
 	}
 }
 
@@ -333,6 +522,7 @@ void GT_InitGametype() {
 
 	// add commands
 	G_RegisterCommand("drop");
+	G_RegisterCommand("debug");
 	G_RegisterCommand("gametype");
 
 	// add callvotes

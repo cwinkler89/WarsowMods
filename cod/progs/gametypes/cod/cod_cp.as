@@ -9,6 +9,8 @@ class cCodPlayer {
 	
 	uint deathStrike;
 	uint killStrike;
+	
+	bool autoaim;
 
 	cCodPlayer(cClient @player) {
 		if(@player == null) {
@@ -44,6 +46,7 @@ class cCodPlayer {
 		this.counter = 0;
 		deathStrike = 0;
 		killStrike = 0;
+		autoaim = false;
 	}
 	
 	void addKill() {
@@ -54,16 +57,16 @@ class cCodPlayer {
 
 		counter+=1;
 		
+		float ratio = getFragToDeathRatio(this.client);
 		
-		if (counter >=7) {
-			G_Print(client.getName() + ": Killstrike 7+\n");
+		
+		if (counter >= (6 * ratio)) {
+			G_Print(client.getName() + ": Killstrike HIGH\n");
+			killStrike = 2;
 		}
-		else if (counter >=5) {
-			G_Print(client.getName() + ": Killstrike 5\n");
-		}
-		else if (counter >=3) {
-			G_Print(client.getName() + ": Killstrike 3\n");
-			client.armor += 150;
+		else if (counter >= (3 * ratio)) {
+			G_Print(client.getName() + ": Killstrike LOW\n");
+			killStrike = 1;
 		}
 	}
 	
@@ -75,16 +78,14 @@ class cCodPlayer {
 
 		counter -=1;
 		
-		if (counter <= -7) {
-			G_Print(client.getName() + ": Deathstrike 7-\n");
-			deathStrike = 3;
-		}
-		else if (counter <= -5) {
-			G_Print(client.getName() + ": Deathstrike 5\n");
+		float ratio = getFragToDeathRatio(this.client);
+		
+		if (counter <= ((-6) * ratio)) {
+			G_Print(client.getName() + ": Deathstrike HIGH\n");
 			deathStrike = 2;
 		}
-		else if (counter <= -3) {
-			G_Print(client.getName() + ": Deathstrike 3\n");
+		else if (counter <= ((-5) * ratio)) {
+			G_Print(client.getName() + ": Deathstrike LOW\n");
 			deathStrike = 1;
 		}
 	}
@@ -99,4 +100,21 @@ cCodPlayer @getCodPlayer(cClient @player) {
 	}
 	
 	return null;
+}
+
+float getFragToDeathRatio(cClient @client) {
+	float frags = client.stats.frags;
+	float deaths = client.stats.deaths;
+	G_Print("getFragToDeathRatio for " + client.getName() + "\n");
+	G_Print("frags: " + frags + "\n");
+	G_Print("deaths: " + deaths + "\n");
+	
+	// compairing to 0.0 ineffektiv
+	if (deaths <= 0.0f)
+		deaths = 1;
+		
+	if (frags <= 0.0f)
+		frags = 1;
+	
+	return (frags / deaths);
 }
