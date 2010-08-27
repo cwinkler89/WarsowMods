@@ -191,7 +191,10 @@ bool GT_Command(cClient @client, cString &cmdString, cString &argsString, int ar
 		return true;
 	}
 	else if (cmdString == "debug") {
-		getCodPlayer(client).autoaim = true;
+		cCodPlayer @codPlayer = getCodPlayer(client);
+		
+		if (@codPlayer != null)
+			codPlayer.setTurret();
 	}
 	/*
 	 else if(cmdString == "callvotevalidate") {
@@ -294,85 +297,94 @@ void GT_ThinkRules() {
 			
 		cCodPlayer @codPlayer = getCodPlayer(client);
 		
-		if (codPlayer != null && !codPlayer.client.getEnt().isGhosting()) {
-			if (codPlayer.deathStrike > 0) {
-				if (codPlayer.client.armor < 200)
-					codPlayer.client.armor += (frameTime * 0.015f / getFragToDeathRatio(client));
-				if (codPlayer.client.getEnt().health < 200)
-					codPlayer.client.getEnt().health += (frameTime * 0.015f / getFragToDeathRatio(client));
-			}
-			if (codPlayer.deathStrike > 1) {
-				// TODO: IMPLEMENT QUAD
-			}
-		}
-		
-		// AUTOAIM
-		/*
-		if (codPlayer != null && codPlayer.autoaim) {
-			
-			cVec3 origin = client.getEnt().getOrigin();
-			cVec3 eye = origin + cVec3(0, 0, client.getEnt().viewHeight);
-	
-			cVec3 dir;
-			// unit vector
-			client.getEnt().getAngles().angleVectors(dir, null, null);
-	
-			cString msg;
-	
-			for(cCodPlayer @otherCodPlayer = @codHead; @otherCodPlayer != null; @otherCodPlayer = @otherCodPlayer.next) {
-				
-				if (@codPlayer == @otherCodPlayer)
-					continue;
-				
-				if(client.team != otherCodPlayer.client.team) {
-					// this compares the dot product of the vector from
-					// player's eye and the model's center and the vector
-					// from the player's eye to the model's top with the
-					// dot product of the vector from the player's eye to
-					// the model's center and the player's angle vector
-					// it should work nicely from all angles and distances
-					// TODO: it's actually stupid at close range since it
-					// assumes you're looking at h1o
+		if (codPlayer != null) {
+			// Deathstrikes
+			if (!codPlayer.client.getEnt().isGhosting()) {
+				if (codPlayer.deathStrikeLow) {
+					float basic = 0.010f;
+					float modifikator = getFragToDeathDifference(client) / 1000.0f;
+					float regeneration = basic - modifikator;
 					
-	
-					cEntity @model = @otherCodPlayer.client.getEnt();
-					cVec3 mid = model.getOrigin();
-					// + (mins + maxs) * 0.5;
-	
-					// if(origin.distance(mid) <= FTAG_DEFROST_RADIUS) {
-					// 	continue;
-					// }
 					
-					cVec3 mins, maxs;
-					model.getSize(mins, maxs);
-	
-					cVec3 top = mid + cVec3(0, 0, 20.0f);
-	
-					cVec3 eyemid = mid - eye;
-					eyemid.normalize();
-					cVec3 eyetop = top - eye;
-					eyetop.normalize();
-	
-					if(dot(dir, eyemid) >= dot(eyetop, eyemid)) {
-						//G_FireInstaShot( cVec3 &origin, cVec3 &angles, int range, int damage, int knockback, int stun, cEntity @owner );
-						//G_FireInstaShot( eye, client.getEnt().getAngles(), 99, 1, 5, 100, codPlayer.client.getEnt() );
-						//cEntity @G_FirePlasma( cVec3 &origin, cVec3 &angles, int speed, int radius, int damage, int knockback, int stun, cEntity @owner );
-						G_FirePlasma( eye, client.getEnt().getAngles(), 550, 50, 1, 5, 110, codPlayer.client.getEnt() );
-						msg += "!!! " + otherCodPlayer.client.getName() + " !!!";
-					}
+					if (regeneration < 0.001f)
+						regeneration = 0.001f;
+					
+					if (regeneration > 0.020f)
+						regeneration = 0.020f;
+					
+					if (codPlayer.client.armor < 200)
+						codPlayer.client.armor += (frameTime * regeneration);
+					if (codPlayer.client.getEnt().health < 200)
+						codPlayer.client.getEnt().health += (frameTime * regeneration);
+				}
+				if (codPlayer.deathStrikeHigh && codPlayer.client.inventoryCount(POWERUP_QUAD) < 5) {
+					//G_Print("Powerup_Quad: " + codPlayer.client.inventoryCount(POWERUP_QUAD) + "\n");
+					codPlayer.client.inventorySetCount(POWERUP_QUAD, 5);
 				}
 			}
-	
-			int len = msg.len();
-			if(len != 0) {
-				G_ConfigString(CS_GENERAL + 2 + i, msg.substr(0, len - 2));
-	
-				client.setHUDStat(STAT_MESSAGE_SELF, CS_GENERAL + 2 + i);
-			} else {
-				client.setHUDStat(STAT_MESSAGE_SELF, 0);
+			
+			
+			// Turrets
+			
+			for(	cTurret @turret = @turretHead;
+				 	@turret != null;
+				 	@turret = @turret.next
+				) {
+					cVec3 origin = turret.model.getOrigin();
+					cVec3 targetOrigin = codPlayer.client.getEnt().getOrigin();
+					
+					if (@codPlayer.client == @turret.owner)
+						continue;
+					
+					if (codPlayer.client.team == turret.owner.team)
+						continue;
+					
+					if (@turret.target == @turret.owner) {
+						if (origin.distance(targetOrigin) <= 500.0f)
+							@turret.target = @codPlayer.client;
+						else
+							targetOrigin = turret.owner.getEnt().getOrigin();
+					}
+					else if (@turret.target != @codPlayer.client){
+						continue;
+					}
+					
+					if(@turret.target == @turret.owner || origin.distance(targetOrigin) <= 500.0f) {
+						
+						// G_Print(turret.owner.getName() + "'s Turret follows " + turret.target.getName() + "\n");
+						cVec3 difference = targetOrigin - origin;
+						cVec3 differenceAngles;
+						
+						difference.toAngles(differenceAngles);
+						turret.model.setAngles(differenceAngles);
+
+						//turret.model.moveType = MOVETYPE_TOSS;
+						turret.model.setVelocity((difference));
+						turret.sprite.setOrigin(origin);
+						turret.minimap.setOrigin(origin);
+						
+						if(@turret.target != @turret.owner && origin.distance(targetOrigin) <= 250.0f) {
+							
+							if (turret.activationTime == 0)
+								turret.activationTime = levelTime;
+							
+							cVec3 eye = origin + cVec3(0, 0, turret.owner.getEnt().viewHeight);
+							
+							//cEntity @G_FirePlasma( cVec3 &origin, cVec3 &angles, int speed, int radius, int damage, int knockback, int stun, cEntity @owner );
+							if (turret.lastShotTime+180 < levelTime) {
+								G_FirePlasma( eye, turret.model.getAngles(), 650, 50, 10, 0, 0, turret.owner.getEnt() );
+								turret.lastShotTime = levelTime;
+							}
+						}
+					}
+					else {
+						@turret.target = @turret.owner;
+					}
+					
+					if (turret.activationTime != 0 && turret.activationTime + 60000 < levelTime)
+						turret.distroy();
 			}
 		}
-		*/
 	}
 }
 
