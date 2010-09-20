@@ -1,11 +1,11 @@
 cCodPlayer @codHead = null;
 cTurret @turretHead = null;
 
+
 class cTurret {
 	cEntity @model;
 	cEntity @sprite;
 	cEntity @minimap;
-	
 	
 	cTurret @next;
 	cTurret @prev;
@@ -16,11 +16,13 @@ class cTurret {
 	uint lastShotTime;
 	uint activationTime;
 	
+	bool isGhost;
+	cVec3 initialOrigin;
 	
-	
-	cTurret(cClient @owner)  {
+	cTurret(cClient @owner, bool isGhost)  {
 		if (@owner == null)
 			return;
+		this.isGhost = isGhost;
 		
 		@this.prev = null;
 		@this.next = @turretHead;
@@ -37,6 +39,7 @@ class cTurret {
 		activationTime = 0;
 		
 		cVec3 vec = this.owner.getEnt().getOrigin();
+		initialOrigin = vec;
 
 		cVec3 mins, maxs;
 		this.owner.getEnt().getSize(mins, maxs);
@@ -169,6 +172,7 @@ class cCodPlayer {
 		if (counter >=  2 * (2 + (playerHasPositiveFragToDeathDifference(client) ? 1 : 0)) && !killStrikeHigh) {
 			G_Print(client.getName() + ": Killstrike HIGH\n");
 			killStrikeHigh = true;
+			callGhost();
 		}
 		else if (counter >= (2 + (playerHasPositiveFragToDeathDifference(client) ? 1 : 0)) && !killStrikeLow) {
 			G_Print(client.getName() + ": Killstrike LOW\n");
@@ -197,7 +201,11 @@ class cCodPlayer {
 	}
 	
 	void setTurret() {
-		cTurret(client);
+		cTurret(client, false);
+	}
+	
+	void callGhost() {
+		cTurret(client, true);
 	}
 		
 }
