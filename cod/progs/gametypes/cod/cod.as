@@ -1,6 +1,7 @@
 float BASIC_GHOST_REACTION_DISTANCE = 500.0f;
 float BASIC_GHOST_SHOOTING_DISTANCE = 250.0f;
-uint  BASIC_GHOST_DURATION_TIME		= 60000;
+uint  BASIC_GHOST_DURATION_TIME		= 90000;
+uint  EXTENDED_GHOST_DURATION_TIME  = 180000;
 
 float BASIC_TURRET_REACTION_DISTANCE	= 750.0f;
 float BASIC_TURRET_SHOOTING_DISTANCE 	= 750.0f;
@@ -105,23 +106,42 @@ void GT_scoreEvent(cClient @client, cString &score_event, cString &args) {
 	} else if(score_event == "kill") {
 		
 		// the target is saved in the args variable
-		cEntity @target = G_GetEntity(args.getToken(0).toInt());
+		cClient @target = null;
+		cEntity @targetEntity = G_GetEntity(args.getToken(0).toInt());
 		
-		if (@target != null && @target.client != null) {
-			cCodPlayer @player = getCodPlayer(target.client);
-			if (@player != null) {
-				player.addDeath();
-			}
-		}
-		
+		if (@targetEntity != null)
+			@target = @targetEntity.client;
+			
 		// client is the attacker
+		cClient @attacker = @client;
 		
-		if (@client != null) {
-			cCodPlayer @player = getCodPlayer(client);
-			if (@player != null && @client != @target.client) {
-				player.addKill();
+		cCodPlayer @codTarget = null;
+		if (@target != null)
+			@codTarget = getCodPlayer(target);
+			
+		cCodPlayer @codAttacker = null;
+		if (@attacker != null)
+			@codAttacker = getCodPlayer(attacker);
+			
+		
+		if (@attacker == null) {
+			if (@target != null && @codTarget != null) {
+				target.stats.addScore(-1);
+				codTarget.resetKillStrike();
 			}
 		}
+		else if (@target == null) {
+			G_Print("DEBUGING NOTICE: TARGET == NULL");
+		}
+		else if (target.team == attacker.team) {
+			attacker.stats.addScore(-1);
+		}
+		else if (target.team != attacker.team) {
+			attacker.stats.addScore(1);
+			codAttacker.addKill();
+			codTarget.addDeath();
+		}
+		
 		
 	} else if(score_event == "disconnect") {
 		cCodPlayer @codPlayer = @getCodPlayer(client);
@@ -210,7 +230,7 @@ bool GT_Command(cClient @client, cString &cmdString, cString &argsString, int ar
 		cCodPlayer @codPlayer = getCodPlayer(client);
 		
 		if (@codPlayer != null)
-			codPlayer.setTurret();
+			codPlayer.callGhost();
 	}
 	/*
 	 else if(cmdString == "callvotevalidate") {
@@ -333,104 +353,85 @@ void GT_ThinkRules() {
 					if (codPlayer.client.getEnt().health < 200)
 						codPlayer.client.getEnt().health += (frameTime * regeneration);
 				}
+				/*
 				if (codPlayer.deathStrikeHigh && codPlayer.client.inventoryCount(POWERUP_QUAD) < 5) {
 					//G_Print("Powerup_Quad: " + codPlayer.client.inventoryCount(POWERUP_QUAD) + "\n");
 					codPlayer.client.inventorySetCount(POWERUP_QUAD, 5);
 				}
+				*/
 			}
 			
 			
-			// Turrets
+			// Ghosts
 			
-			for(	cTurret @turret = @turretHead;
-				 	@turret != null;
-				 	@turret = @turret.next
+			for(	cGhost @ghost = @ghostHead;
+				 	@ghost != null;
+				 	@ghost = @ghost.next
 				) {
-					cVec3 origin = turret.model.getOrigin();
+					cVec3 origin = ghost.model.getOrigin();
 					cVec3 targetOrigin = codPlayer.client.getEnt().getOrigin();
 					
-					if (@codPlayer.client == @turret.owner)
+					if (@codPlayer.client == @ghost.owner)
 						continue;
 					
-					if (codPlayer.client.team == turret.owner.team)
+					if (codPlayer.client.team == ghost.owner.team)
 						continue;
 					
-					if (@turret.target == @turret.owner) {
+					if (@ghost.target == @ghost.owner) {
 						if (origin.distance(targetOrigin) <= BASIC_GHOST_REACTION_DISTANCE)
-							@turret.target = @codPlayer.client;
+							@ghost.target = @codPlayer.client;
 						else
-							targetOrigin = turret.owner.getEnt().getOrigin();
+							targetOrigin = ghost.owner.getEnt().getOrigin();
 					}
-					else if (@turret.target != @codPlayer.client){
+					else if (@ghost.target != @codPlayer.client){
 						continue;
 					}
 					
-					if( @turret.target == @turret.owner ||
-						(origin.distance(targetOrigin) <= BASIC_GHOST_REACTION_DISTANCE && turret.isGhost) ||
-						(origin.distance(targetOrigin) <= BASIC_TURRET_REACTION_DISTANCE && !turret.isGhost)) {
+					if( @ghost.target == @ghost.owner ||
+						(origin.distance(targetOrigin) <= BASIC_GHOST_REACTION_DISTANCE)) {
 						
 						cVec3 difference = targetOrigin - origin;
 						cVec3 differenceAngles;
 						
 						difference.toAngles(differenceAngles);
-						turret.model.setAngles(differenceAngles);
+						ghost.model.setAngles(differenceAngles);
 
-						if (turret.isGhost)
-							turret.model.setVelocity((difference));
+						ghost.model.setVelocity((difference));
 						
-						turret.sprite.setOrigin(origin);
-						turret.minimap.setOrigin(origin);
+						ghost.sprite.setOrigin(origin);
+						ghost.minimap.setOrigin(origin);
 						
-						if(@turret.target != @turret.owner) {
+						if(@ghost.target != @ghost.owner) {
 							
-							if (!turret.isGhost) {
-								if (origin.distance(targetOrigin) <= BASIC_TURRET_SHOOTING_DISTANCE &&
-									turret.lastShotTime+70 < levelTime) {
-										
-									if (turret.activationTime == 0)
-										turret.activationTime = levelTime;
-										
-									cVec3 eye = origin + cVec3(0, 0, turret.owner.getEnt().viewHeight);
+							if (origin.distance(targetOrigin) <= BASIC_GHOST_SHOOTING_DISTANCE &&
+								ghost.lastShotTime+180 < levelTime) {
 									
-									// Stationary Turrets
-									// void G_FireBullet( cVec3 &origin, cVec3 &angles, int range, int spread, int damage, int knockback, int stun, cEntity @owner );
+								if (ghost.activationTime == 0)
+									ghost.activationTime = levelTime;
 									
-									G_FireBullet( eye, turret.model.getAngles(), 1000, 50, 10, 0, 0,
-									turret.owner.getEnt() );
+								cVec3 eye = origin + cVec3(0, 0, ghost.owner.getEnt().viewHeight);
 									
-									turret.lastShotTime = levelTime;
-									}
-							}
-							else {
-								if (origin.distance(targetOrigin) <= BASIC_GHOST_SHOOTING_DISTANCE &&
-									turret.lastShotTime+180 < levelTime) {
-										
-									if (turret.activationTime == 0)
-										turret.activationTime = levelTime;
-										
-									cVec3 eye = origin + cVec3(0, 0, turret.owner.getEnt().viewHeight);
-										
-									// Ghosts
-									//cEntity @G_FirePlasma( cVec3 &origin, cVec3 &angles, int speed, int radius, int damage, int knockback, int stun, cEntity @owner );
-									
-									G_FirePlasma( eye, turret.model.getAngles(), 650, 50, 10, 0, 0,
-									turret.owner.getEnt() );
-									
-									turret.lastShotTime = levelTime;
-								}
+								// Ghosts
+								//cEntity @G_FirePlasma( cVec3 &origin, cVec3 &angles, int speed, int radius, int damage, int knockback, int stun, cEntity @owner );
+								
+								G_FirePlasma( eye, ghost.model.getAngles(), 650, 50, 10, 0, 0,
+								ghost.owner.getEnt() );
+								
+								ghost.lastShotTime = levelTime;
 							}
 						} 
 					}
 					else {
-						@turret.target = @turret.owner;
+						@ghost.target = @ghost.owner;
 					}
 					
-					if (!turret.isGhost && turret.activationTime != 0 &&
-						turret.activationTime + BASIC_TURRET_DURATION_TIME < levelTime) {
+					
+					if (ghost.activationTime != 0 &&
+						ghost.activationTime + 
+						(playerHasPositiveFragToDeathDifference(ghost.owner) ? BASIC_GHOST_DURATION_TIME : EXTENDED_GHOST_DURATION_TIME) < levelTime) {
+							ghost.distroy();
 					}
-					else if (turret.isGhost && turret.activationTime != 0 &&
-						turret.activationTime + BASIC_GHOST_DURATION_TIME < levelTime) {
-					}
+					
 
 			}
 		}
@@ -518,7 +519,7 @@ void GT_InitGametype() {
 	// spawning at initialization do it in GT_SpawnGametype, which is called
 	// right after the map entities spawning.
 	gametype.setTitle("CoD Remix");
-	gametype.setVersion("0.1");
+	gametype.setVersion("0.6");
 	gametype.setAuthor("ChriZzZ");
 
 	gametype.spawnableItemsMask = IT_WEAPON | IT_AMMO | IT_ARMOR | IT_POWERUP | IT_HEALTH;

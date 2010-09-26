@@ -1,56 +1,55 @@
 cCodPlayer @codHead = null;
-cTurret @turretHead = null;
+cGhost @ghostHead = null;
 
 
-class cTurret {
+class cGhost {
 	cEntity @model;
 	cEntity @sprite;
 	cEntity @minimap;
 	
-	cTurret @next;
-	cTurret @prev;
+	cGhost @next;
+	cGhost @prev;
 	
 	cClient @owner;
 	cClient @target;
+	cClient @revenge;
 	
 	uint lastShotTime;
 	uint activationTime;
+	uint fragsOnCalling;
 	
-	bool isGhost;
-	cVec3 initialOrigin;
 	
-	cTurret(cClient @owner, bool isGhost)  {
+	cGhost(cClient @owner)  {
 		if (@owner == null)
 			return;
-		this.isGhost = isGhost;
 		
 		@this.prev = null;
-		@this.next = @turretHead;
+		@this.next = @ghostHead;
 		if(@this.next != null) {
 			@this.next.prev = @this;
 		}
 		
-		@turretHead = @this;
+		@ghostHead = @this;
 		
 		@this.owner = owner;
 		@target = owner;
 		
 		lastShotTime = 0;
 		activationTime = 0;
+		fragsOnCalling = owner.stats.frags;
 		
 		cVec3 vec = this.owner.getEnt().getOrigin();
-		initialOrigin = vec;
 
 		cVec3 mins, maxs;
 		this.owner.getEnt().getSize(mins, maxs);
 
-		@this.model = @G_SpawnEntity("turret");
+		@this.model = @G_SpawnEntity("ghost");
 		this.model.type = ET_PLAYER;
 		this.model.moveType = MOVETYPE_STOP;
 		this.model.mass = 250; // no longer arbritary
 		this.model.takeDamage = 1;
 		this.model.setOrigin(vec);
-		this.model.setVelocity(this.owner.getEnt().getVelocity());
+		// this.model.setVelocity(this.owner.getEnt().getVelocity());
 		this.model.setSize(mins, maxs);
 		this.model.setAngles(owner.getEnt().getAngles());
 		this.model.team = owner.team;
@@ -100,8 +99,8 @@ class cTurret {
 			@this.next.prev = @this.prev;
 		}
 		
-		if(@turretHead == @this) {
-			@turretHead = @this.next;
+		if(@ghostHead == @this) {
+			@ghostHead = @this.next;
 		}
 
 	}
@@ -118,8 +117,6 @@ class cCodPlayer {
 	bool deathStrikeHigh;
 	bool killStrikeLow;
 	bool killStrikeHigh;
-	
-	bool autoaim;
 
 	cCodPlayer(cClient @player) {
 		if(@player == null) {
@@ -157,7 +154,16 @@ class cCodPlayer {
 		deathStrikeHigh = false;
 		killStrikeLow = false;
 		killStrikeHigh = false;
-		autoaim = false;
+	}
+	
+	void resetKillStrike() {
+		killStrikeLow = false;
+		killStrikeHigh = false;
+	}
+	
+	void resetDeathStrike() {
+		deathStrikeLow = false;
+		deathStrikeHigh = false;
 	}
 	
 	void addKill() {
@@ -166,18 +172,20 @@ class cCodPlayer {
 			deathStrikeLow = false;
 			deathStrikeHigh = false;
 		}
+		
+		updateGhosts();
 
 		counter+=1;
 		
 		if (counter >=  2 * (2 + (playerHasPositiveFragToDeathDifference(client) ? 1 : 0)) && !killStrikeHigh) {
 			G_Print(client.getName() + ": Killstrike HIGH\n");
 			killStrikeHigh = true;
-			callGhost();
+			// TODO: KILL STRIKE AWARD
 		}
 		else if (counter >= (2 + (playerHasPositiveFragToDeathDifference(client) ? 1 : 0)) && !killStrikeLow) {
 			G_Print(client.getName() + ": Killstrike LOW\n");
 			killStrikeLow = true;
-			setTurret();
+			client.inventoryGiveItem(WEAP_TOTAL);
 		}
 	}
 	
@@ -193,6 +201,7 @@ class cCodPlayer {
 		if (counter <= -2 * (2 + (playerHasPositiveFragToDeathDifference(client) ? 1 : 0))) {
 			G_Print(client.getName() + ": Deathstrike HIGH\n");
 			deathStrikeHigh = true;
+			callGhost();
 		}
 		else if (counter <= -(2 + (playerHasPositiveFragToDeathDifference(client) ? 1 : 0))) {
 			G_Print(client.getName() + ": Deathstrike LOW\n");
@@ -200,12 +209,8 @@ class cCodPlayer {
 		}
 	}
 	
-	void setTurret() {
-		cTurret(client, false);
-	}
-	
 	void callGhost() {
-		cTurret(client, true);
+		cGhost(client);
 	}
 		
 }
@@ -226,4 +231,20 @@ int getFragToDeathDifference(cClient @client) {
 
 bool playerHasPositiveFragToDeathDifference(cClient @client) {
 	return getFragToDeathDifference(client) >= 0;
+}
+
+void updateGhosts() {
+	for(	cGhost @ghost = @ghostHead;
+		 	@ghost != null;
+		 	@ghost = @ghost.next
+		) {
+		
+		if (ghost.owner.stats.frags >
+			ghost.fragsOnCalling + (playerHasPositiveFragToDeathDifference(ghost.owner) ? 2 : 4)) {
+			
+			ghost.distroy();
+		}
+		
+	}
+		
 }
