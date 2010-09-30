@@ -1,15 +1,16 @@
 float BASIC_GHOST_REACTION_DISTANCE = 500.0f;
 float BASIC_GHOST_SHOOTING_DISTANCE = 250.0f;
 uint  BASIC_GHOST_DURATION_TIME		= 90000;
-uint  EXTENDED_GHOST_DURATION_TIME  = 180000;
+uint  BASIC_GHOST_DURATION_KILLS	= 3;
 
-float BASIC_TURRET_REACTION_DISTANCE	= 750.0f;
-float BASIC_TURRET_SHOOTING_DISTANCE 	= 750.0f;
-uint  BASIC_TURRET_DURATION_TIME		= 120000;
+float EXTENDED_GHOST_REACTION_DISTANCE = 700.0f;
+float EXTENDED_GHOST_SHOOTING_DISTANCE = 350.0f;
+uint  EXTENDED_GHOST_DURATION_TIME	   = 180000;
+uint  EXTENDED_GHOST_DURATION_KILLS	   = 5;
 
 float MIN_REGENERATION		=	0.001f;
-float BASIC_REGENERATION	=	0.010f;
-float MAX_REGENERATION		=	0.020f;
+float BASIC_REGENERATION	=	0.006f;
+float MAX_REGENERATION		=	0.012f;
 
 
 
@@ -33,6 +34,33 @@ void COD_giveInventory(cClient @client) {
 	client.armor = 50;
 }
 
+/*
+cClient @getPlayerWithHighestScoreFromTeam(cTeam team) {
+	cClient @player = null;
+	int maximumScore;
+	
+	for(int i = 0; i < maxClients; i++) {
+		cClient @client = @G_GetClient(i);
+
+		if(@client == null) {
+			break;
+		}
+
+		if(client.team == team) {
+			if (@player == null) {
+				@player = @client;
+				maximumScore = player.stats.score;
+			}
+			
+			if (player.stats.score > maximumScore) {
+				@player = @client;
+				maximumScore = player.stats.score;
+			}
+		}
+	}
+	return player;
+}
+*/
 cString @GT_ScoreboardMessage(int maxlen) {
 	cString scoreboardMessage = "";
 	cString entry;
@@ -127,17 +155,20 @@ void GT_scoreEvent(cClient @client, cString &score_event, cString &args) {
 		if (@attacker == null) {
 			if (@target != null && @codTarget != null) {
 				target.stats.addScore(-1);
+				G_GetTeam(target.team).stats.addScore(-1);
 				codTarget.resetKillStrike();
 			}
 		}
 		else if (@target == null) {
-			G_Print("DEBUGING NOTICE: TARGET == NULL");
+			// G_Print("DEBUGING NOTICE: TARGET == NULL ----- ATTACKER: " + attacker.getName() + "\n");
 		}
 		else if (target.team == attacker.team) {
 			attacker.stats.addScore(-1);
+			G_GetTeam(attacker.team).stats.addScore(-1);
 		}
 		else if (target.team != attacker.team) {
 			attacker.stats.addScore(1);
+			G_GetTeam(attacker.team).stats.addScore(1);
 			codAttacker.addKill();
 			codTarget.addDeath();
 		}
@@ -221,15 +252,47 @@ bool GT_Command(cClient @client, cString &cmdString, cString &argsString, int ar
 		response += "----------------\n";
 		response += "Version: " + gametype.getVersion() + "\n";
 		response += "Author: " + gametype.getAuthor() + "\n";
-		response += "Mod: " + fs_game.getString() + (manifest.length() > 0 ? " (manifest: " + manifest + ")" : "") + "\n";
+		response += "Mod: " + fs_game.getString() + "\n";
 		response += "----------------\n";
 		G_PrintMsg(client.getEnt(), response);
 		return true;
 	}
 	else if (cmdString == "debug") {
+		//cCodPlayer @codPlayer = getCodPlayer(client);
+		
+		for(int i = 0; i < maxClients; i++) {
+			cClient @debugClient = @G_GetClient(i);
+			
+			if (debugClient == null)
+				continue;
+			
+			cCodPlayer @codPlayer = getCodPlayer(debugClient);
+			
+			if (@codPlayer != null) {
+				if (@codPlayer.client != client)
+					codPlayer.callGhost();
+			}
+		}
+	}
+	else if (cmdString == "double") {
 		cCodPlayer @codPlayer = getCodPlayer(client);
 		
 		if (@codPlayer != null)
+			codPlayer.swapWithDouble();
+	}
+	else if (cmdString == "scoreUp") {
+		if (@client != null) {
+			client.stats.addScore(1);
+		}
+	}
+	else if (cmdString == "scoreDown") {
+		if (@client != null) {
+			client.stats.addScore(-1);
+		}
+	}
+	else if (cmdString == "callGhost") {
+		cCodPlayer @codPlayer = getCodPlayer(client);
+		if (@codPlayer != null) 
 			codPlayer.callGhost();
 	}
 	/*
@@ -371,6 +434,21 @@ void GT_ThinkRules() {
 					cVec3 origin = ghost.model.getOrigin();
 					cVec3 targetOrigin = codPlayer.client.getEnt().getOrigin();
 					
+					float reactionDistance;
+					float shootingDistance;
+					uint durationTime;
+					
+					if (playerHasPositiveFragToDeathDifference(ghost.owner)) {
+						reactionDistance = BASIC_GHOST_REACTION_DISTANCE;
+						shootingDistance = BASIC_GHOST_SHOOTING_DISTANCE;
+						durationTime 	 = BASIC_GHOST_DURATION_TIME;
+					}
+					else {
+						reactionDistance = EXTENDED_GHOST_REACTION_DISTANCE;
+						shootingDistance = EXTENDED_GHOST_SHOOTING_DISTANCE;
+						durationTime 	 = EXTENDED_GHOST_DURATION_TIME;
+					}
+					
 					if (@codPlayer.client == @ghost.owner)
 						continue;
 					
@@ -378,17 +456,27 @@ void GT_ThinkRules() {
 						continue;
 					
 					if (@ghost.target == @ghost.owner) {
-						if (origin.distance(targetOrigin) <= BASIC_GHOST_REACTION_DISTANCE)
+						if (origin.distance(targetOrigin) <= reactionDistance &&
+							ghost.owner.stats.score < codPlayer.client.stats.score)
 							@ghost.target = @codPlayer.client;
 						else
 							targetOrigin = ghost.owner.getEnt().getOrigin();
 					}
 					else if (@ghost.target != @codPlayer.client){
+						if (ghost.target.stats.score < codPlayer.client.stats.score)
+							@ghost.target = @codPlayer.client;
+						continue;
+					}
+					else if (ghost.owner.stats.score >= codPlayer.client.stats.score) {
+						@ghost.target = @ghost.owner;
 						continue;
 					}
 					
+					
+					
 					if( @ghost.target == @ghost.owner ||
-						(origin.distance(targetOrigin) <= BASIC_GHOST_REACTION_DISTANCE)) {
+						(origin.distance(targetOrigin) <= reactionDistance)
+						) {
 						
 						cVec3 difference = targetOrigin - origin;
 						cVec3 differenceAngles;
@@ -403,7 +491,7 @@ void GT_ThinkRules() {
 						
 						if(@ghost.target != @ghost.owner) {
 							
-							if (origin.distance(targetOrigin) <= BASIC_GHOST_SHOOTING_DISTANCE &&
+							if (origin.distance(targetOrigin) <= shootingDistance &&
 								ghost.lastShotTime+180 < levelTime) {
 									
 								if (ghost.activationTime == 0)
@@ -426,9 +514,7 @@ void GT_ThinkRules() {
 					}
 					
 					
-					if (ghost.activationTime != 0 &&
-						ghost.activationTime + 
-						(playerHasPositiveFragToDeathDifference(ghost.owner) ? BASIC_GHOST_DURATION_TIME : EXTENDED_GHOST_DURATION_TIME) < levelTime) {
+					if (ghost.activationTime != 0 && ghost.activationTime + durationTime < levelTime) {
 							ghost.distroy();
 					}
 					
@@ -519,7 +605,7 @@ void GT_InitGametype() {
 	// spawning at initialization do it in GT_SpawnGametype, which is called
 	// right after the map entities spawning.
 	gametype.setTitle("CoD Remix");
-	gametype.setVersion("0.6");
+	gametype.setVersion("0.8");
 	gametype.setAuthor("ChriZzZ");
 
 	gametype.spawnableItemsMask = IT_WEAPON | IT_AMMO | IT_ARMOR | IT_POWERUP | IT_HEALTH;
@@ -585,7 +671,12 @@ void GT_InitGametype() {
 	// add commands
 	G_RegisterCommand("drop");
 	G_RegisterCommand("debug");
+	G_RegisterCommand("double");
 	G_RegisterCommand("gametype");
+	G_RegisterCommand("scoreUp");
+	G_RegisterCommand("scoreDown");
+	G_RegisterCommand("callGhost");
+	
 
 	// add callvotes
 	G_RegisterCallvote("COD_powerups", "1 or 0", "Enables or disables powerups in Freeze Tag.");
@@ -603,8 +694,8 @@ void GT_InitGametype() {
 			+ "set g_maplist \"wdm1 wdm2 wdm3 wdm4 wdm5 wdm6 wdm7 wdm8 wdm9 wdm10 wdm11 wdm12 wdm13 wdm14 wdm15 wdm16 wdm17\" // list of maps in automatic rotation\n"
 			+ "set g_maprotation \"1\"   // 0 = same map, 1 = in order, 2 = random\n"
 			+ "\n// game settings\n"
-			+ "set g_scorelimit \"15\"\n"
-			+ "set g_timelimit \"0\"\n"
+			+ "set g_scorelimit \"100\"\n"
+			+ "set g_timelimit \"10\"\n"
 			+ "set g_warmup_enabled \"1\"\n"
 			+ "set g_warmup_timelimit \"1.5\"\n"
 			+ "set g_match_extendedtime \"0\"\n"
